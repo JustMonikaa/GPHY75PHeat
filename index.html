@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heat Concepts Visualizer</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+        :root {
+            --bg-color: #020205;
+            --grid-color: rgba(0, 255, 255, 0.05);
+            --cyan: #00ffff;
+            --magenta: #ff00ff;
+            --orange: #ff9900;
+            --red: #ff3333;
+            --green: #00ff00;
+            --font-main: 'VT323', monospace;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            background-image: 
+                linear-gradient(var(--grid-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+            background-size: 30px 30px;
+            color: var(--cyan);
+            font-family: var(--font-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        /* Scanline Overlay */
+        body::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            z-index: 999;
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        #app-container {
+            width: 100vw;
+            height: 100vh;
+            max-width: 1400px;
+            max-height: 900px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .screen {
+            position: absolute;
+            top: 20px; left: 20px; right: 20px; bottom: 20px;
+            display: none;
+            flex-direction: column;
+            border: 2px solid var(--cyan);
+            box-shadow: 0 0 15px var(--cyan), inset 0 0 15px var(--cyan);
+            background: rgba(0, 20, 20, 0.6);
+            padding: 20px;
+        }
+        
+        .screen.active {
+            display: flex;
+        }
+
+        /* --- Header --- */
+        .header {
+            text-align: center;
+            font-size: 36px;
+            color: var(--orange);
+            text-shadow: 0 0 10px var(--orange), 0 0 20px var(--orange);
+            margin-bottom: 20px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            z-index: 10;
+        }
+        .header::before, .header::after {
+            content: ' ⚡ ';
+            color: var(--orange);
+        }
+
+        /* --- UI Components --- */
+        button {
+            font-family: var(--font-main);
+            background: rgba(0, 255, 255, 0.05);
+            color: var(--cyan);
+            border: 1px solid var(--cyan);
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.2s;
+            box-shadow: 0 0 5px var(--cyan), inset 0 0 5px var(--cyan);
+            z-index: 10;
+        }
+        button:hover {
+            background: rgba(0, 255, 255, 0.2);
+            box-shadow: 0 0 15px var(--cyan), inset 0 0 15px var(--cyan);
+            text-shadow: 0 0 5px var(--cyan);
+        }
+        button:active {
+            background: var(--cyan);
+            color: #000;
+        }
+        button.magenta-btn {
+            color: var(--magenta); border-color: var(--magenta); box-shadow: 0 0 5px var(--magenta), inset 0 0 5px var(--magenta);
+        }
+        button.magenta-btn:hover { background: rgba(255, 0, 255, 0.2); box-shadow: 0 0 15px var(--magenta), inset 0 0 15px var(--magenta); text-shadow: 0 0 5px var(--magenta); }
+        button.magenta-btn:active { background: var(--magenta); color: #000; }
+
+        button.orange-btn {
+            color: var(--orange); border-color: var(--orange); box-shadow: 0 0 5px var(--orange), inset 0 0 5px var(--orange);
+        }
+        button.orange-btn:hover { background: rgba(255, 153, 0, 0.2); box-shadow: 0 0 15px var(--orange), inset 0 0 15px var(--orange); text-shadow: 0 0 5px var(--orange); }
+        button.orange-btn:active { background: var(--orange); color: #000; }
+
+
+        .nav-bar {
+            display: flex;
+            justify-content: flex-start;
+            margin-bottom: 10px;
+            z-index: 20;
+        }
+
+        /* --- Main Menu --- */
+        #menu-screen {
+            justify-content: center;
+            align-items: center;
+            background: transparent;
+            border: none;
+            box-shadow: none;
+        }
+        .menu-box {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            width: 400px;
+        }
+
+        /* --- Canvas Container --- */
+        .stage-container {
+            flex-grow: 1;
+            position: relative;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            background: transparent;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0; left: 0;
+        }
+
+        /* --- Shared Simulator Layout --- */
+        .sim-layout {
+            display: grid;
+            grid-template-columns: 250px 1fr 250px;
+            grid-template-rows: 1fr auto;
+            flex-grow: 1;
+            gap: 20px;
+            height: 100%;
+        }
+        .sim-layout-alt {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            gap: 20px;
+            height: 100%;
+        }
+
+        .side-panel {
+            border: 1px solid var(--cyan);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            box-shadow: inset 0 0 10px rgba(0,255,255,0.1);
+            background: rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+
+        /* Typography & Data Displays */
+        .data-display {
+            font-size: 28px;
+            color: var(--cyan);
+            text-align: right;
+            text-shadow: 0 0 8px var(--cyan);
+            margin-bottom: 2px;
+        }
+        .data-display.orange { color: var(--orange); text-shadow: 0 0 8px var(--orange); }
+        .data-display.magenta { color: var(--magenta); text-shadow: 0 0 8px var(--magenta); }
+        .data-caption { font-size: 14px; color: rgba(0, 255, 255, 0.7); text-align: right; text-transform: uppercase; }
+        .control-label { font-size: 16px; color: var(--orange); margin-bottom: 10px; display: block; text-shadow: 0 0 5px var(--orange); text-transform: uppercase;}
+
+        /* Controls */
+        input[type=range] {
+            -webkit-appearance: none; width: 100%; background: transparent; margin: 10px 0;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 16px; width: 8px; background: var(--cyan); cursor: pointer; box-shadow: 0 0 10px var(--cyan);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 2px; cursor: pointer; background: rgba(0, 255, 255, 0.3);
+        }
+
+        select {
+            font-family: var(--font-main); background: #000; color: var(--cyan);
+            border: 1px solid var(--cyan); padding: 8px; font-size: 16px; outline: none; cursor: pointer;
+            width: 100%; text-shadow: 0 0 5px var(--cyan); box-shadow: inset 0 0 5px rgba(0,255,255,0.2);
+        }
+        select option { background: #001111; }
+
+        /* Radio & Checkboxes */
+        .radio-group { display: flex; flex-direction: column; gap: 15px; }
+        .radio-label { display: flex; align-items: center; cursor: pointer; font-size: 18px; color: rgba(0,255,255,0.6); transition: 0.2s;}
+        .radio-label:hover { color: var(--cyan); text-shadow: 0 0 5px var(--cyan); }
+        .radio-label input { display: none; }
+        .radio-custom {
+            width: 14px; height: 14px; border: 1px solid var(--cyan); margin-right: 12px; display: inline-block; position: relative; box-shadow: 0 0 5px var(--cyan);
+        }
+        .radio-label input:checked ~ .radio-custom::after {
+            content: ""; position: absolute; top: 2px; left: 2px; right: 2px; bottom: 2px; background: var(--cyan); box-shadow: 0 0 5px var(--cyan);
+        }
+        .radio-label input:checked ~ span { color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
+
+        .check-label {
+            display: flex; align-items: center; cursor: pointer; font-size: 16px; color: var(--magenta); text-shadow: 0 0 5px var(--magenta); margin-top: 10px;
+        }
+        .check-label input { display: none; }
+        .check-custom {
+            width: 14px; height: 14px; border: 1px solid var(--magenta); margin-right: 8px; display: inline-block; position: relative; box-shadow: 0 0 5px var(--magenta);
+        }
+        .check-label input:checked ~ .check-custom::after {
+            content: "X"; position: absolute; top: -4px; left: 2px; font-size: 18px; color: var(--magenta); text-shadow: 0 0 5px var(--magenta);
+        }
+
+        .unit-toggle { display: flex; gap: 5px; margin-bottom: 20px; justify-content: flex-end; }
+        .unit-btn { padding: 4px 8px; font-size: 14px; border: 1px solid rgba(0,255,255,0.3); background: transparent; color: rgba(0,255,255,0.5); }
+        .unit-btn.active { border-color: var(--cyan); color: var(--cyan); text-shadow: 0 0 5px var(--cyan); box-shadow: inset 0 0 5px var(--cyan); }
+
+        .bottom-controls { grid-column: 1 / -1; display: flex; justify-content: center; gap: 30px; z-index: 10; }
+
+        /* Specific Heat Layout Tweaks */
+        .sh-top-panel { display: flex; justify-content: space-between; gap: 20px; }
+        .sh-box { flex: 1; border: 1px solid rgba(0,255,255,0.2); padding: 15px; background: rgba(0,0,0,0.4); display: flex; flex-direction: column; gap: 10px;}
+        .sh-split-stage { display: flex; flex-grow: 1; position: relative; border: 1px solid var(--cyan); box-shadow: inset 0 0 20px rgba(0,255,255,0.1); background: #000;}
+
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+
+    <!-- MAIN MENU -->
+    <div id="menu-screen" class="screen active">
+        <div class="header">HEAT CONCEPTS VISUALIZER</div>
+        <div class="menu-box">
+            <button onclick="switchScreen('kinetic-screen')">[1] KINETIC ENERGY SIMULATOR</button>
+            <button onclick="switchScreen('expansion-screen')">[2] LINEAR THERMAL EXPANSION</button>
+            <button class="magenta-btn" onclick="switchScreen('specific-screen')">[3] SPECIFIC HEAT CAPACITY</button>
+        </div>
+    </div>
+
+    <!-- 1: KINETIC ENERGY SIMULATOR -->
+    <div id="kinetic-screen" class="screen">
+        <div class="nav-bar">
+            <button onclick="switchScreen('menu-screen')">&lt; BACK</button>
+            <div class="header" style="margin: 0 auto; font-size: 24px;">KINETIC ENERGY SIMULATOR</div>
+            <div style="width: 100px;"></div>
+        </div>
+        
+        <div class="sim-layout">
+            <div class="side-panel">
+                <div class="control-label">PHASE STATE (H2O)</div>
+                <div class="radio-group">
+                    <label class="radio-label">
+                        <input type="radio" name="phase" value="solid" checked onchange="forcePhase('solid')">
+                        <span class="radio-custom"></span> <span>SOLID</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="phase" value="liquid" onchange="forcePhase('liquid')">
+                        <span class="radio-custom"></span> <span>LIQUID</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="phase" value="gas" onchange="forcePhase('gas')">
+                        <span class="radio-custom"></span> <span>GAS</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="stage-container" id="kin-stage-bounds">
+                <canvas id="kinCanvas"></canvas>
+            </div>
+
+            <div class="side-panel">
+                <div class="unit-toggle">
+                    <button class="unit-btn active" id="btn-C" onclick="setKinUnit('C')">°C</button>
+                    <button class="unit-btn" id="btn-F" onclick="setKinUnit('F')">°F</button>
+                    <button class="unit-btn" id="btn-K" onclick="setKinUnit('K')">K</button>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <div class="data-display orange" id="kin-temp-disp">0.0 °C</div>
+                    <div class="data-caption">TEMPERATURE</div>
+                    <input type="range" id="kin-temp-slider" min="0" max="1000" value="273.15" step="1">
+                </div>
+
+                <div>
+                    <div class="data-display" id="kin-energy-disp">0.00 J</div>
+                    <div class="data-caption">AVG KINETIC ENERGY <br>(x10^-21)</div>
+                </div>
+            </div>
+
+            <div class="bottom-controls">
+                <button onclick="modifyEnergy(1)" class="orange-btn">+ ADD KINETIC ENERGY</button>
+                <button onclick="modifyEnergy(-1)">- REMOVE KINETIC ENERGY</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2: LINEAR THERMAL EXPANSION SIMULATOR -->
+    <div id="expansion-screen" class="screen">
+        <div class="nav-bar">
+            <button onclick="switchScreen('menu-screen')">&lt; BACK</button>
+            <div class="header" style="margin: 0 auto; font-size: 24px;">LINEAR THERMAL EXPANSION</div>
+            <div style="width: 100px;"></div>
+        </div>
+
+        <div class="sim-layout-alt">
+            
+            <div style="display: flex; justify-content: center; gap: 80px; z-index: 10;">
+                <div>
+                    <div class="data-display orange" id="exp-temp-disp" style="text-align: center;">20.0 °C</div>
+                    <div class="data-caption" style="text-align: center;">TEMPERATURE</div>
+                </div>
+                <div>
+                    <div class="data-display" id="exp-energy-disp" style="text-align: center;">15.00 kJ</div>
+                    <div class="data-caption" style="text-align: center;">THERMAL ENERGY</div>
+                </div>
+            </div>
+
+            <div class="stage-container" id="exp-stage-bounds" style="border: none;">
+                <canvas id="expCanvas"></canvas>
+            </div>
+            
+            <div style="display: flex; justify-content: center; gap: 20px; margin-top: 10px; z-index: 10;">
+                <button onclick="modifyExpTemp(-1)">- REDUCE TEMP</button>
+                <button onclick="modifyExpTemp(1)" class="orange-btn">+ INCREASE TEMP</button>
+            </div>
+
+            <div style="position: absolute; bottom: 20px; right: 20px; width: 250px;" class="side-panel">
+                <div class="control-label">MATERIAL</div>
+                <select id="material-select" onchange="changeMaterial()">
+                    <option value="0">Aluminum</option>
+                    <option value="1">Brass</option>
+                    <option value="2">Concrete</option>
+                    <option value="3">Copper</option>
+                    <option value="4">Common Glass</option>
+                    <option value="5">Pyrex</option>
+                    <option value="6">Gold</option>
+                    <option value="7">Iron/Steel</option>
+                    <option value="8">Lead</option>
+                    <option value="9">Nickel</option>
+                    <option value="10">Silver</option>
+                </select>
+                
+                <div style="margin-top: 10px;">
+                    <div class="data-display" style="font-size: 20px;" id="exp-len">L = 10.00000 m</div>
+                    <div class="data-display magenta" style="font-size: 16px;" id="exp-dlen">ΔL = +0.00000 m</div>
+                </div>
+                
+                <label class="check-label">
+                    <input type="checkbox" id="xray-toggle" onchange="toggleXRay()">
+                    <span class="check-custom"></span> ENABLE X-RAY LENS
+                </label>
+            </div>
+
+            <div style="position: absolute; bottom: 20px; left: 20px; z-index: 10;">
+                <button onclick="resetExpansion()">RESET SIMULATION</button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- 3: SPECIFIC HEAT CAPACITY SIMULATOR -->
+    <div id="specific-screen" class="screen">
+        <div class="nav-bar">
+            <button onclick="switchScreen('menu-screen')">&lt; BACK</button>
+            <div class="header" style="margin: 0 auto; font-size: 24px;">SPECIFIC HEAT CAPACITY SIMULATOR</div>
+            <div style="width: 100px;"></div>
+        </div>
+
+        <div class="sim-layout-alt">
+            <div class="sh-top-panel">
+                <div class="sh-box" style="border-color: var(--cyan);">
+                    <div class="control-label" style="color: var(--cyan);">H2O TANK (LIQUID)</div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span style="color: rgba(0,255,255,0.7);">MASS:</span>
+                        <select id="sh-water-mass" style="width: 120px;" onchange="shUpdateEquilibrium()">
+                            <option value="1">1.0 kg</option>
+                            <option value="2">2.0 kg</option>
+                            <option value="5">5.0 kg</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="sh-box" style="border-color: var(--orange);">
+                    <div class="control-label">FURNACE BLOCK (SOLID)</div>
+                    <div style="display: flex; gap: 10px; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; gap: 5px; align-items: center;">
+                            <span style="color: rgba(255,153,0,0.7);">MAT:</span>
+                            <select id="sh-metal-type" style="width: 100px;" onchange="shUpdateEquilibrium()">
+                                <option value="897">Aluminum</option>
+                                <option value="450">Iron</option>
+                                <option value="129">Gold</option>
+                                <option value="385">Copper</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; gap: 5px; align-items: center;">
+                            <span style="color: rgba(255,153,0,0.7);">MASS:</span>
+                            <select id="sh-metal-mass" style="width: 100px;" onchange="shUpdateEquilibrium()">
+                                <option value="1">1.0 kg</option>
+                                <option value="2">2.0 kg</option>
+                                <option value="5">5.0 kg</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sh-split-stage" id="sh-stage-bounds">
+                <canvas id="shCanvas"></canvas>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; z-index: 10;">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button onclick="shReset()">RESET TEST</button>
+                    <label class="check-label">
+                        <input type="checkbox" id="sh-xray-toggle" onchange="shToggleXRay()">
+                        <span class="check-custom"></span> ENABLE MOLECULAR X-RAY
+                    </label>
+                </div>
+
+                <div style="text-align: center;">
+                    <div class="data-caption" style="text-align: center; color: var(--magenta);" id="sh-status-msg">SYSTEM IDLE</div>
+                </div>
+
+                <div style="display: flex; gap: 20px;">
+                    <button class="orange-btn" id="btn-sh-heat" onmousedown="shStartHeating()" onmouseup="shStopHeating()" onmouseleave="shStopHeating()">[ HOLD TO HEAT BLOCK ]</button>
+                    <button class="magenta-btn" id="btn-sh-drop" onclick="shTriggerDrop()">INITIATE DROP &gt;&gt;</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    /* =========================================================================
+       GLOBAL APP LOGIC
+       ========================================================================= */
+    let animIdKin = null, animIdExp = null, animIdSh = null;
+
+    function switchScreen(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+        
+        cancelAnimationFrame(animIdKin);
+        cancelAnimationFrame(animIdExp);
+        cancelAnimationFrame(animIdSh);
+
+        if (screenId === 'kinetic-screen') initKineticSim();
+        else if (screenId === 'expansion-screen') initExpansionSim();
+        else if (screenId === 'specific-screen') initSpecificHeatSim();
+    }
+
+    // Vector Drawing Utilities
+    function drawNeonLine(ctx, x1, y1, x2, y2, color, width=2, blur=10) {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+        ctx.strokeStyle = color; ctx.lineWidth = width;
+        ctx.shadowBlur = blur; ctx.shadowColor = color;
+        ctx.stroke();
+        ctx.shadowBlur = 0; // reset
+    }
+    
+    function drawNeonRect(ctx, x, y, w, h, color, width=2, blur=10) {
+        ctx.beginPath();
+        ctx.rect(x, y, w, h);
+        ctx.strokeStyle = color; ctx.lineWidth = width;
+        ctx.shadowBlur = blur; ctx.shadowColor = color;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+
+    function drawNeonParticle(ctx, x, y, r, colorCore, colorGlow) {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = colorCore;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = colorGlow;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+
+    /* =========================================================================
+       1. KINETIC ENERGY SIMULATOR LOGIC
+       ========================================================================= */
+    const kinCanvas = document.getElementById('kinCanvas');
+    const kinCtx = kinCanvas.getContext('2d');
+    let kinCW, kinCH;
+    
+    let kinTempK = 150; 
+    let currentPhase = 'solid';
+    let kinUnit = 'C';
+    let particles = [];
+    let isSpawning = false;
+
+    const MELT_POINT = 273.15;
+    const BOIL_POINT = 373.15;
+    const NUM_PARTICLES = 144; 
+    const PARTICLE_SIZE = 12;
+
+    function calculateTargets(phase) {
+        if (!kinCW) return;
+        let layoutW = kinCW * 0.75; // 3/4 width
+        let spacing = (phase === 'liquid') ? PARTICLE_SIZE * 1.6 : PARTICLE_SIZE * 1.2; 
+        
+        let cols = Math.floor(layoutW / spacing);
+        if (cols < 1) cols = 1;
+        let rows = Math.ceil(NUM_PARTICLES / cols);
+        
+        let actualW = cols * spacing;
+        let startX = (kinCW - actualW) / 2;
+        let startY = kinCH - (rows * spacing) - PARTICLE_SIZE;
+
+        particles.forEach((p, i) => {
+            let col = i % cols;
+            let row = Math.floor(i / cols);
+            p.targetX = startX + col * spacing;
+            p.targetY = startY + row * spacing;
+        });
+    }
+
+    class Particle {
+        constructor(id) {
+            this.id = id;
+            this.resetPos();
+            this.targetX = 0;
+            this.targetY = 0;
+        }
+        resetPos() {
+            this.x = Math.random() * kinCW;
+            this.y = -Math.random() * 500 - 50; 
+            this.vx = (Math.random() - 0.5) * 5;
+            this.vy = Math.random() * 2 + 1;
+        }
+        update(phase, temp) {
+            let vibBase = Math.max(0.1, temp); // Minutely vibrate even at low temp, 0 at 0K
+            let vibrationAmp = vibBase * 0.005; 
+            let r = PARTICLE_SIZE/2;
+
+            if (isSpawning) {
+                this.vy += 0.5; // Gravity
+                this.y += this.vy; this.x += this.vx;
+                if (this.x <= r) { this.x = r; this.vx *= -1; }
+                if (this.x >= kinCW - r) { this.x = kinCW - r; this.vx *= -1; }
+                if (this.y >= kinCH - r) { this.y = kinCH - r; this.vy *= -0.5; }
+                if (this.y > this.targetY - 20) { this.vx *= 0.8; this.vy *= 0.8; }
+                return;
+            }
+
+            if (phase === 'solid' || phase === 'liquid') {
+                let k = phase === 'solid' ? 0.05 : 0.02;
+                let damp = phase === 'solid' ? 0.82 : 0.88;
+                
+                let tx = this.targetX;
+                let ty = this.targetY;
+                if (phase === 'liquid') {
+                    tx += Math.sin(Date.now()*0.002 + this.id) * 15;
+                    ty += Math.cos(Date.now()*0.0015 + this.id) * 5;
+                    if (this.y < ty - 30) this.vy += 0.5; // Gravity
+                }
+                
+                this.vx += (tx - this.x) * k;
+                this.vy += (ty - this.y) * k;
+                this.vx *= damp; this.vy *= damp;
+                
+                this.x += this.vx + (Math.random() - 0.5) * vibrationAmp * (phase==='liquid'?2.5:1);
+                this.y += this.vy + (Math.random() - 0.5) * vibrationAmp * (phase==='liquid'?2.0:1);
+            } else if (phase === 'gas') {
+                let baseSpeed = 3;
+                let scaleFactor = (temp - BOIL_POINT) * 0.03;
+                let targetSpeed = baseSpeed + Math.max(0, scaleFactor);
+                if (targetSpeed > 25) targetSpeed = 25; 
+                
+                let currentSpeed = Math.hypot(this.vx, this.vy);
+                if (currentSpeed < 0.5) {
+                    let angle = Math.random() * Math.PI * 2;
+                    this.vx = Math.cos(angle) * targetSpeed;
+                    this.vy = Math.sin(angle) * targetSpeed;
+                    currentSpeed = targetSpeed;
+                }
+                let speedDiff = targetSpeed - currentSpeed;
+                this.vx += (this.vx / currentSpeed) * speedDiff * 0.1;
+                this.vy += (this.vy / currentSpeed) * speedDiff * 0.1;
+
+                this.x += this.vx; this.y += this.vy;
+            }
+            
+            // Strict boundaries
+            if (this.x <= r) { this.x = r; this.vx *= -1; }
+            if (this.x >= kinCW - r) { this.x = kinCW - r; this.vx *= -1; }
+            if (this.y <= r && phase === 'gas') { this.y = r; this.vy *= -1; }
+            if (this.y >= kinCH - r) { this.y = kinCH - r; this.vy *= (phase === 'gas' ? -1 : -0.5); }
+        }
+        draw(ctx) {
+            let colorCore = '#fff';
+            let colorGlow = '#00ffff';
+            if (currentPhase === 'gas') { colorGlow = '#ff00ff'; }
+            if (currentPhase === 'solid') { colorGlow = '#0088ff'; }
+            drawNeonParticle(ctx, this.x, this.y, PARTICLE_SIZE/2, colorCore, colorGlow);
+        }
+    }
+
+    function initKineticSim() {
+        const container = document.getElementById('kin-stage-bounds');
+        kinCanvas.width = container.clientWidth; kinCanvas.height = container.clientHeight;
+        kinCW = kinCanvas.width; kinCH = kinCanvas.height;
+
+        particles = [];
+        for (let i = 0; i < NUM_PARTICLES; i++) particles.push(new Particle(i));
+        
+        calculateTargets(currentPhase);
+        
+        document.getElementById('kin-temp-slider').addEventListener('input', (e) => {
+            kinTempK = parseFloat(e.target.value);
+            checkPhaseChange('temp'); updateKineticUI();
+        });
+
+        triggerShower(); updateKineticUI(); kinLoop();
+    }
+
+    function triggerShower() {
+        isSpawning = true;
+        particles.forEach(p => p.resetPos());
+        setTimeout(() => { isSpawning = false; }, 2000);
+    }
+
+    function checkPhaseChange(triggerSource = 'temp') {
+        let newPhase = 'solid';
+        if (kinTempK >= BOIL_POINT) newPhase = 'gas';
+        else if (kinTempK >= MELT_POINT) newPhase = 'liquid';
+
+        if (newPhase !== currentPhase) {
+            currentPhase = newPhase;
+            document.querySelector(`input[name="phase"][value="${currentPhase}"]`).checked = true;
+            calculateTargets(currentPhase);
+            if (triggerSource === 'radio') {
+                triggerShower();
+            } else if (currentPhase === 'gas') {
+                // Explode directly
+                particles.forEach(p => {
+                    let angle = Math.random() * Math.PI * 2; let speed = 10;
+                    p.vx = Math.cos(angle) * speed; p.vy = Math.sin(angle) * speed;
+                });
+            }
+        }
+    }
+
+    function forcePhase(phase) {
+        if (phase === 'solid') kinTempK = 150;
+        else if (phase === 'liquid') kinTempK = 300;
+        else if (phase === 'gas') kinTempK = 450;
+        document.getElementById('kin-temp-slider').value = kinTempK;
+        checkPhaseChange('radio'); updateKineticUI();
+    }
+
+    function modifyEnergy(direction) {
+        if (direction > 0) {
+            kinTempK += 20;
+            if (kinTempK > 1000) kinTempK = 1000;
+        } else {
+            if (kinTempK > 200) kinTempK -= 25;
+            else if (kinTempK > 50) kinTempK -= 10;
+            else if (kinTempK > 10) kinTempK -= 2;
+            else if (kinTempK > 1) kinTempK -= 0.5;
+            else kinTempK *= 0.8; 
+            if (kinTempK < 0) kinTempK = 0; // stop at 0K
+        }
+        document.getElementById('kin-temp-slider').value = kinTempK;
+        checkPhaseChange('temp'); updateKineticUI();
+    }
+
+    function setKinUnit(unit) {
+        kinUnit = unit;
+        document.querySelectorAll('#kinetic-screen .unit-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById(`btn-${unit}`).classList.add('active');
+        updateKineticUI();
+    }
+
+    function formatTemp(k, unit) {
+        if (unit === 'K') return k.toFixed(1) + ' K';
+        if (unit === 'C') return (k - 273.15).toFixed(1) + ' °C';
+        if (unit === 'F') return ((k - 273.15) * 9/5 + 32).toFixed(1) + ' °F';
+    }
+
+    function updateKineticUI() {
+        document.getElementById('kin-temp-disp').innerText = formatTemp(kinTempK, kinUnit);
+        let energyVisual = (kinTempK * 0.0207).toFixed(2);
+        document.getElementById('kin-energy-disp').innerText = `${energyVisual} J`;
+    }
+
+    function kinLoop() {
+        kinCtx.clearRect(0, 0, kinCW, kinCH);
+        drawNeonRect(kinCtx, 2, 2, kinCW-4, kinCH-4, '#00ffff', 2, 10); // Stage bounds
+
+        particles.forEach(p => { p.update(currentPhase, kinTempK); p.draw(kinCtx); });
+        animIdKin = requestAnimationFrame(kinLoop);
+    }
+
+
+    /* =========================================================================
+       2. LINEAR THERMAL EXPANSION SIMULATOR LOGIC
+       ========================================================================= */
+    const expCanvas = document.getElementById('expCanvas');
+    const expCtx = expCanvas.getContext('2d');
+    let expCW, expCH;
+
+    const materials = [
+        { name: 'Aluminum', alpha: 24e-6, melt: 933, color: '#00ffff' },
+        { name: 'Brass', alpha: 19e-6, melt: 1173, color: '#ffcc00' },
+        { name: 'Concrete', alpha: 12e-6, melt: 2000, color: '#888888' },
+        { name: 'Copper', alpha: 17e-6, melt: 1358, color: '#ff9900' },
+        { name: 'Common Glass', alpha: 9e-6, melt: 1700, color: '#00ffcc' },
+        { name: 'Pyrex', alpha: 3.3e-6, melt: 1100, color: '#aaffff' },
+        { name: 'Gold', alpha: 14e-6, melt: 1337, color: '#ffff00' },
+        { name: 'Iron/Steel', alpha: 12e-6, melt: 1811, color: '#a0a0ff' },
+        { name: 'Lead', alpha: 29e-6, melt: 600.6, color: '#ff55ff' },
+        { name: 'Nickel', alpha: 13e-6, melt: 1728, color: '#bbffbb' },
+        { name: 'Silver', alpha: 18e-6, melt: 1235, color: '#eeeeee' }
+    ];
+    let expMat = materials[0];
+    const BASE_TEMP_K = 293.15;
+    let expTempK = BASE_TEMP_K;
+    const BASE_LENGTH = 10.0; 
+    let xrayEnabled = false;
+    let xrayParticles = [];
+    const XRAY_RADIUS = 80; 
+
+    class ExpXRayParticle {
+        constructor(tx, ty) {
+            this.tx = tx; this.ty = ty; this.x = tx; this.y = ty;
+            this.vx = 0; this.vy = 0;
+        }
+        update(temp, melt) {
+            let r = 3;
+            if (temp < melt) {
+                let vib = (temp / melt) * 3.0; 
+                let k = 0.1; let damp = 0.8;
+                this.vx += (this.tx - this.x) * k; this.vy += (this.ty - this.y) * k;
+                this.vx *= damp; this.vy *= damp;
+                this.x += this.vx + (Math.random() - 0.5) * vib;
+                this.y += this.vy + (Math.random() - 0.5) * vib;
+            } else {
+                let speed = 2 + (temp - melt) * 0.01;
+                if (speed > 10) speed = 10;
+                let curSpd = Math.hypot(this.vx, this.vy);
+                if (curSpd < 0.1) {
+                    let ang = Math.random() * Math.PI*2;
+                    this.vx = Math.cos(ang)*speed; this.vy = Math.sin(ang)*speed;
+                }
+                this.x += this.vx; this.y += this.vy;
+                let dist = Math.hypot(this.x, this.y);
+                if (dist > XRAY_RADIUS - r) {
+                    let ang = Math.atan2(this.y, this.x);
+                    this.vx = -Math.cos(ang) * speed; this.vy = -Math.sin(ang) * speed;
+                    this.x = Math.cos(ang) * (XRAY_RADIUS - r); this.y = Math.sin(ang) * (XRAY_RADIUS - r);
+                }
+            }
+        }
+    }
+
+    function initExpansionSim() {
+        const container = document.getElementById('exp-stage-bounds');
+        expCanvas.width = container.clientWidth; expCanvas.height = container.clientHeight;
+        expCW = expCanvas.width; expCH = expCanvas.height;
+        initExpXRayParticles(); updateExpUI(); expLoop();
+    }
+
+    function initExpXRayParticles() {
+        xrayParticles = [];
+        let spacing = 20;
+        for (let i = -XRAY_RADIUS; i <= XRAY_RADIUS; i += spacing) {
+            for (let j = -XRAY_RADIUS; j <= XRAY_RADIUS; j += spacing) {
+                if (Math.hypot(i, j) < XRAY_RADIUS - 10) xrayParticles.push(new ExpXRayParticle(i, j));
+            }
+        }
+    }
+
+    function changeMaterial() {
+        expMat = materials[document.getElementById('material-select').value];
+        expTempK = BASE_TEMP_K; 
+        initExpXRayParticles(); updateExpUI();
+    }
+    function resetExpansion() { expTempK = BASE_TEMP_K; updateExpUI(); }
+    function toggleXRay() { xrayEnabled = document.getElementById('xray-toggle').checked; }
+
+    function modifyExpTemp(dir) {
+        expTempK += dir * 30;
+        if (expTempK < 10) expTempK = 10; 
+        updateExpUI();
+    }
+
+    function updateExpUI() {
+        let calcTemp = expTempK > expMat.melt ? expMat.melt : expTempK;
+        let deltaT = calcTemp - BASE_TEMP_K;
+        let deltaL = BASE_LENGTH * expMat.alpha * deltaT;
+        let finalL = BASE_LENGTH + deltaL;
+
+        document.getElementById('exp-temp-disp').innerText = (expTempK - 273.15).toFixed(1) + ' °C';
+        document.getElementById('exp-energy-disp').innerText = (expTempK * 0.05).toFixed(2) + ' kJ';
+        document.getElementById('exp-len').innerText = `L = ${finalL.toFixed(6)} m`;
+        document.getElementById('exp-dlen').innerText = `ΔL = ${deltaL > 0 ? '+':''}${deltaL.toFixed(6)} m`;
+    }
+
+    function drawVectorLamp(ctx, x, y, temp) {
+        // Base
+        drawNeonLine(ctx, x-20, y, x+20, y, '#44aa44', 2, 5);
+        drawNeonLine(ctx, x-10, y, x-10, y-15, '#44aa44', 2, 5);
+        drawNeonLine(ctx, x+10, y, x+10, y-15, '#44aa44', 2, 5);
+        drawNeonLine(ctx, x-10, y-15, x+10, y-15, '#44aa44', 2, 5);
+        
+        // Flame (Vector Triangle)
+        if (temp > BASE_TEMP_K) {
+            let intensity = Math.min(1, (temp - BASE_TEMP_K) / 1000);
+            let h = 20 + (intensity * 30);
+            let flicker = Math.sin(Date.now() * 0.02) * 4;
+            
+            ctx.beginPath();
+            ctx.moveTo(x - 8 + flicker, y - 15);
+            ctx.lineTo(x, y - 15 - h);
+            ctx.lineTo(x + 8 - flicker, y - 15);
+            ctx.closePath();
+            ctx.strokeStyle = '#ff3333'; ctx.lineWidth = 2;
+            ctx.shadowBlur = 15; ctx.shadowColor = '#ff3333';
+            ctx.stroke();
+
+            // Inner core
+            ctx.beginPath();
+            ctx.moveTo(x - 3 - flicker, y - 15);
+            ctx.lineTo(x, y - 15 - h*0.6);
+            ctx.lineTo(x + 3 + flicker, y - 15);
+            ctx.fillStyle = '#ff9900';
+            ctx.shadowColor = '#ffff00';
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    function expLoop() {
+        expCtx.clearRect(0, 0, expCW, expCH);
+        
+        const centerY = expCH / 2 - 40;
+        const beamThickness = 40;
+        const lampX = expCW / 2;
+        const lampY = centerY + XRAY_RADIUS + beamThickness + 40; // safely below xray
+
+        let isMelted = expTempK >= expMat.melt;
+        let calcTemp = isMelted ? expMat.melt : expTempK;
+        let deltaT = calcTemp - BASE_TEMP_K;
+        
+        let visualScale = 10; 
+        let baseW = expCW * 0.55; 
+        let visualWidth = Math.max(10, baseW * (1 + expMat.alpha * deltaT * visualScale));
+        let startX = (expCW - visualWidth) / 2;
+        let endX = startX + visualWidth;
+
+        // Beam
+        if (isMelted) {
+            expCtx.beginPath();
+            expCtx.moveTo(startX, centerY - beamThickness/2);
+            let sag = Math.min(100, (expTempK - expMat.melt) * 0.1 + 10);
+            expCtx.quadraticCurveTo(lampX, centerY - beamThickness/2 + sag, endX, centerY - beamThickness/2);
+            expCtx.lineTo(endX, centerY + beamThickness/2);
+            expCtx.quadraticCurveTo(lampX, centerY + beamThickness/2 + sag, startX, centerY + beamThickness/2);
+            expCtx.closePath();
+            expCtx.strokeStyle = '#ff0055'; expCtx.lineWidth = 2;
+            expCtx.shadowBlur = 20; expCtx.shadowColor = '#ff0055';
+            expCtx.stroke();
+            expCtx.fillStyle = 'rgba(255,0,85,0.2)'; expCtx.fill();
+            
+            expCtx.fillStyle = '#ff0055'; expCtx.font = "24px 'VT323'";
+            expCtx.textAlign = 'center'; expCtx.fillText(">> SYSTEM MELTDOWN <<", lampX, centerY + 120);
+        } else {
+            drawNeonRect(expCtx, startX, centerY - beamThickness/2, visualWidth, beamThickness, expMat.color, 2, 15);
+            // interior lines
+            expCtx.beginPath(); expCtx.moveTo(startX, centerY); expCtx.lineTo(endX, centerY);
+            expCtx.strokeStyle = 'rgba(255,255,255,0.2)'; expCtx.stroke();
+        }
+
+        // Supports
+        drawNeonLine(expCtx, startX-10, centerY+beamThickness/2+20, startX+10, centerY+beamThickness/2+20, '#00ffff');
+        drawNeonLine(expCtx, startX, centerY+beamThickness/2+20, startX, centerY+beamThickness/2, '#00ffff');
+        expCtx.beginPath(); expCtx.arc(endX, centerY+beamThickness/2+10, 10, 0, Math.PI*2); expCtx.strokeStyle='#00ffff'; expCtx.stroke();
+
+        drawVectorLamp(expCtx, lampX, lampY, expTempK);
+
+        // X-Ray
+        if (xrayEnabled) {
+            expCtx.save();
+            expCtx.beginPath(); expCtx.arc(lampX, centerY, XRAY_RADIUS, 0, Math.PI * 2);
+            expCtx.strokeStyle = varMagenta = '#ff00ff'; expCtx.lineWidth = 3;
+            expCtx.shadowBlur = 15; expCtx.shadowColor = varMagenta;
+            expCtx.stroke(); expCtx.fillStyle = '#050005'; expCtx.fill();
+            expCtx.clip(); 
+            expCtx.translate(lampX, centerY); 
+
+            xrayParticles.forEach(p => {
+                p.update(expTempK, expMat.melt);
+                drawNeonParticle(expCtx, p.x, p.y, 3, '#fff', expMat.color);
+                if (!isMelted) {
+                    expCtx.strokeStyle = 'rgba(255,0,255,0.3)'; expCtx.lineWidth = 1;
+                    expCtx.beginPath(); expCtx.moveTo(p.x, p.y); expCtx.lineTo(p.tx+20, p.ty); expCtx.stroke();
+                    expCtx.beginPath(); expCtx.moveTo(p.x, p.y); expCtx.lineTo(p.tx, p.ty+20); expCtx.stroke();
+                }
+            });
+            expCtx.restore();
+        }
+        animIdExp = requestAnimationFrame(expLoop);
+    }
+
+
+    /* =========================================================================
+       3. SPECIFIC HEAT CAPACITY SIMULATOR (DROP TEST) LOGIC
+       ========================================================================= */
+    const shCanvas = document.getElementById('shCanvas');
+    const shCtx = shCanvas.getContext('2d');
+    let shCW, shCH;
+
+    const SPECIFIC_HEATS = {
+        water: 4184, 
+        '897': 897, // Aluminum
+        '450': 450, // Iron
+        '129': 129, // Gold
+        '385': 385  // Copper
+    };
+
+    let shState = 'IDLE'; // IDLE, HEATING, DROPPING, TRANSFERRING
+    let massWater = 1.0, tempWater = 20.0;
+    let massMetal = 1.0, tempMetal = 20.0, typeMetal = '897';
+    let tempEquilibrium = 20.0;
+    
+    let isHeating = false;
+    let dropProgress = 0;
+    let transferProgress = 0;
+    let tempWaterStart = 20.0, tempMetalStart = 20.0;
+
+    let shXRay = false;
+    let shMolecules = [];
+
+    // Geometry
+    let tX, tY, tW, tH; // Tank
+    let fX, fY, fW, fH; // Furnace
+    let bX, bY, bS = 60; // Block
+    let cY = 50; // Crane track height
+
+    function initSpecificHeatSim() {
+        const container = document.getElementById('sh-stage-bounds');
+        shCanvas.width = container.clientWidth; shCanvas.height = container.clientHeight;
+        shCW = shCanvas.width; shCH = shCanvas.height;
+        
+        tW = 180; tH = 250; tX = shCW * 0.25 - tW/2; tY = shCH - tH - 40;
+        fW = 140; fH = 150; fX = shCW * 0.75 - fW/2; fY = shCH - fH - 40;
+        
+        shReset();
+        shLoop();
+    }
+
+    function shUpdateEquilibrium() {
+        massWater = parseFloat(document.getElementById('sh-water-mass').value);
+        massMetal = parseFloat(document.getElementById('sh-metal-mass').value);
+        typeMetal = document.getElementById('sh-metal-type').value;
+        let cWater = SPECIFIC_HEATS.water;
+        let cMetal = SPECIFIC_HEATS[typeMetal];
+        
+        // Equilibrium equation: (mw*cw*Tw + mm*cm*Tm) / (mw*cw + mm*cm)
+        tempEquilibrium = (massWater * cWater * tempWaterStart + massMetal * cMetal * tempMetalStart) / 
+                          (massWater * cWater + massMetal * cMetal);
+    }
+
+    function shReset() {
+        shState = 'IDLE';
+        isHeating = false;
+        dropProgress = 0; transferProgress = 0;
+        tempWater = 20.0; tempMetal = 20.0;
+        tempWaterStart = 20.0; tempMetalStart = 20.0;
+        bX = fX + fW/2 - bS/2; bY = fY + fH - bS - 10;
+        document.getElementById('sh-status-msg').innerText = "SYSTEM IDLE";
+        shUpdateEquilibrium();
+        initShMolecules();
+    }
+
+    function shToggleXRay() {
+        shXRay = document.getElementById('sh-xray-toggle').checked;
+    }
+
+    function shStartHeating() {
+        if (shState !== 'IDLE') return;
+        isHeating = true;
+        document.getElementById('sh-status-msg').innerText = "HEATING BLOCK...";
+    }
+    function shStopHeating() {
+        isHeating = false;
+        if (shState === 'IDLE') {
+            tempMetalStart = tempMetal; // lock in the temp for eq calc
+            shUpdateEquilibrium();
+            document.getElementById('sh-status-msg').innerText = "READY FOR DROP";
+        }
+    }
+
+    function shTriggerDrop() {
+        if (shState !== 'IDLE' || tempMetal <= 25) return;
+        shState = 'DROPPING';
+        document.getElementById('sh-status-msg').innerText = "INITIATING DROP SEQUENCE";
+    }
+
+    function initShMolecules() {
+        shMolecules = [];
+        // Water molecules (left side of xray)
+        for(let i=0; i<30; i++) {
+            shMolecules.push({
+                type: 'water', x: -60 + Math.random()*50, y: (Math.random()-0.5)*100, 
+                tx: -60 + Math.random()*50, ty: (Math.random()-0.5)*100
+            });
+        }
+        // Metal atoms (right side of xray)
+        let spacing = 15;
+        for(let x=10; x<=70; x+=spacing) {
+            for(let y=-50; y<=50; y+=spacing) {
+                shMolecules.push({type: 'metal', x: x, y: y, tx: x, ty: y});
+            }
+        }
+    }
+
+    function drawThermometer(ctx, x, y, temp, maxTemp=100, isWater=true) {
+        let th = 150, tw = 12;
+        drawNeonRect(ctx, x, y-th, tw, th, '#fff', 1, 5); // glass tube
+        let fillPct = Math.min(1, Math.max(0, temp/maxTemp));
+        let fh = fillPct * (th-4);
+        let color = isWater ? '#00ffff' : '#ff3333';
+        ctx.fillStyle = color;
+        ctx.shadowBlur = 10; ctx.shadowColor = color;
+        ctx.fillRect(x+2, y-2-fh, tw-4, fh);
+        ctx.shadowBlur = 0;
+        
+        ctx.fillStyle = color; ctx.font = "16px 'VT323'"; ctx.textAlign = "center";
+        ctx.fillText(`${temp.toFixed(1)}°C`, x+tw/2, y-th-10);
+    }
+
+    function shLoop() {
+        shCtx.clearRect(0, 0, shCW, shCH);
+
+        // Updates
+        if (isHeating && shState === 'IDLE') {
+            tempMetal += 2;
+            if (tempMetal > 1000) tempMetal = 1000;
+        }
+
+        if (shState === 'DROPPING') {
+            dropProgress += 0.015;
+            let p = dropProgress;
+            // Arc path logic (up to track, over, down into tank)
+            if (p < 0.3) {
+                bY = (fY + fH - bS - 10) - (p/0.3)*(fY + fH - bS - 10 - cY - bS);
+            } else if (p < 0.7) {
+                bY = cY + bS;
+                let norm = (p-0.3)/0.4;
+                bX = (fX + fW/2 - bS/2) - norm*((fX + fW/2 - bS/2) - (tX + tW/2 - bS/2));
+            } else {
+                bX = tX + tW/2 - bS/2;
+                let norm = (p-0.7)/0.3;
+                bY = (cY + bS) + norm*(tY + tH - bS - 10 - cY - bS);
+            }
+            
+            if (dropProgress >= 1.0) {
+                shState = 'TRANSFERRING';
+                document.getElementById('sh-status-msg').innerText = "ENERGY TRANSFER IN PROGRESS";
+            }
+        }
+
+        if (shState === 'TRANSFERRING') {
+            transferProgress += 0.005;
+            if (transferProgress >= 1.0) {
+                transferProgress = 1.0;
+                shState = 'DONE';
+                document.getElementById('sh-status-msg').innerText = "THERMAL EQUILIBRIUM REACHED";
+            }
+            // Lerp temperatures
+            // We use easeOut curve for realistic cooling
+            let ease = 1 - Math.pow(1 - transferProgress, 3); 
+            tempWater = tempWaterStart + (tempEquilibrium - tempWaterStart) * ease;
+            tempMetal = tempMetalStart + (tempEquilibrium - tempMetalStart) * ease;
+        }
+
+        // Draw Tank & Water
+        drawNeonRect(shCtx, tX, tY, tW, tH, '#00ffff', 2, 10);
+        let waterLevel = tH * (0.4 + (massWater/10)); // visually change level based on mass
+        shCtx.fillStyle = 'rgba(0, 255, 255, 0.15)';
+        shCtx.fillRect(tX+2, tY+tH-waterLevel, tW-4, waterLevel);
+        // Water waves
+        shCtx.beginPath();
+        for(let i=0; i<tW-4; i++) {
+            shCtx.lineTo(tX+2+i, tY+tH-waterLevel + Math.sin(i*0.05 + Date.now()*0.005)*5);
+        }
+        shCtx.strokeStyle = '#00ffff'; shCtx.stroke();
+
+        // Draw Furnace
+        drawNeonRect(shCtx, fX, fY, fW, fH, '#ff9900', 2, 10);
+        if (isHeating) {
+            shCtx.fillStyle = `rgba(255, 100, 0, ${0.2 + Math.random()*0.2})`;
+            shCtx.fillRect(fX+2, fY+2, fW-4, fH-4);
+        }
+
+        // Draw Crane Track
+        drawNeonLine(shCtx, tX+tW/2, cY, fX+fW/2, cY, 'rgba(255,0,255,0.5)', 2, 0);
+        if (shState === 'DROPPING') {
+            // Crane arm
+            drawNeonLine(shCtx, bX+bS/2, cY, bX+bS/2, bY, '#ff00ff', 2, 10);
+        }
+
+        // Draw Metal Block
+        // Color shifts from grey to bright red based on temp
+        let r = Math.min(255, 100 + (tempMetal/1000)*155);
+        let g = Math.max(0, 100 - (tempMetal/1000)*100);
+        let b = Math.max(0, 100 - (tempMetal/1000)*100);
+        let blockColor = `rgb(${r},${g},${b})`;
+        let blockGlow = `rgb(${r},0,0)`;
+        
+        // Make the block size slightly depend on mass visually
+        let curBs = bS * (0.8 + massMetal*0.1);
+        let bxOffset = bX + (bS - curBs)/2;
+        let byOffset = bY + (bS - curBs); // keep bottom aligned
+        drawNeonRect(shCtx, bxOffset, byOffset, curBs, curBs, blockColor, 3, (tempMetal>100)?15:5);
+        shCtx.fillStyle = `rgba(${r},${g},${b}, 0.5)`;
+        shCtx.fillRect(bxOffset, byOffset, curBs, curBs);
+
+        // Draw Thermometers
+        drawThermometer(shCtx, tX - 30, tY + tH - 10, tempWater, 100, true);
+        drawThermometer(shCtx, fX + fW + 20, fY + fH - 10, tempMetal, 1000, false);
+
+        // Specific Heat X-RAY Visualizer
+        if (shXRay && (shState === 'TRANSFERRING' || shState === 'DONE')) {
+            shCtx.save();
+            let xrR = 100; let xrX = tX+tW/2; let xrY = tY+tH-waterLevel/2;
+            
+            // Xray Lens
+            shCtx.beginPath(); shCtx.arc(xrX, xrY, xrR, 0, Math.PI*2);
+            shCtx.strokeStyle = '#ff00ff'; shCtx.lineWidth = 4;
+            shCtx.shadowBlur = 15; shCtx.shadowColor = '#ff00ff';
+            shCtx.stroke(); shCtx.fillStyle = '#0a000a'; shCtx.fill();
+            shCtx.clip();
+            shCtx.translate(xrX, xrY);
+
+            // Interface Line
+            drawNeonLine(shCtx, 0, -xrR, 0, xrR, 'rgba(255,255,255,0.2)');
+
+            shMolecules.forEach(m => {
+                let vibTarget, baseK, baseDamp, isWater = m.type === 'water';
+                if (isWater) {
+                    vibTarget = tempWater * 0.1;
+                    baseK = 0.05; baseDamp = 0.85;
+                } else {
+                    vibTarget = (tempMetal/1000) * 10;
+                    baseK = 0.2; baseDamp = 0.7; // rigid
+                }
+
+                // Random chaotic movement constrained to targets
+                m.x += (m.tx - m.x)*baseK + (Math.random()-0.5)*vibTarget;
+                m.y += (m.ty - m.y)*baseK + (Math.random()-0.5)*vibTarget;
+                
+                // Keep strictly on their side of the interface
+                if (isWater && m.x > -5) m.x = -5;
+                if (!isWater && m.x < 5) m.x = 5;
+
+                drawNeonParticle(shCtx, m.x, m.y, isWater?4:3, '#fff', isWater?'#00ffff':'#ff3333');
+            });
+
+            shCtx.restore();
+        }
+
+        animIdSh = requestAnimationFrame(shLoop);
+    }
+
+    // Auto-resize handler
+    window.addEventListener('resize', () => {
+        ['kin-stage-bounds', 'exp-stage-bounds', 'sh-stage-bounds'].forEach((id, idx) => {
+            const bounds = document.getElementById(id);
+            if(bounds.clientWidth > 0) {
+                let cvs = bounds.querySelector('canvas');
+                cvs.width = bounds.clientWidth; cvs.height = bounds.clientHeight;
+                if(idx===0) { kinCW = cvs.width; kinCH = cvs.height; calculateTargets(currentPhase); }
+                if(idx===1) { expCW = cvs.width; expCH = cvs.height; }
+                if(idx===2) { shCW = cvs.width; shCH = cvs.height; 
+                    tX = shCW * 0.25 - tW/2; fX = shCW * 0.75 - fW/2;
+                    if(shState==='IDLE') { bX = fX + fW/2 - bS/2; }
+                }
+            }
+        });
+    });
+
+</script>
+</body>
+</html>
