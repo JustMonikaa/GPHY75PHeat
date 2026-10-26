@@ -128,7 +128,6 @@
         button.orange-btn:hover { background: rgba(255, 153, 0, 0.2); box-shadow: 0 0 15px var(--orange), inset 0 0 15px var(--orange); text-shadow: 0 0 5px var(--orange); }
         button.orange-btn:active { background: var(--orange); color: #000; }
 
-
         .nav-bar {
             display: flex;
             justify-content: flex-start;
@@ -148,7 +147,7 @@
             display: flex;
             flex-direction: column;
             gap: 30px;
-            width: 400px;
+            width: 450px;
         }
 
         /* --- Canvas Container --- */
@@ -209,7 +208,7 @@
         .data-display.orange { color: var(--orange); text-shadow: 0 0 8px var(--orange); }
         .data-display.magenta { color: var(--magenta); text-shadow: 0 0 8px var(--magenta); }
         .data-caption { font-size: 14px; color: rgba(0, 255, 255, 0.7); text-align: right; text-transform: uppercase; }
-        .control-label { font-size: 16px; color: var(--orange); margin-bottom: 10px; display: block; text-shadow: 0 0 5px var(--orange); text-transform: uppercase;}
+        .control-label { font-size: 16px; color: var(--orange); margin-bottom: 5px; display: block; text-shadow: 0 0 5px var(--orange); text-transform: uppercase;}
 
         /* Controls */
         input[type=range] {
@@ -290,8 +289,8 @@
         
         <div class="sim-layout">
             <div class="side-panel">
-                <div class="control-label">PHASE STATE (H2O)</div>
-                <div class="radio-group">
+                <div class="control-label">PHASE STATE</div>
+                <div class="radio-group" style="margin-bottom: 20px;">
                     <label class="radio-label">
                         <input type="radio" name="phase" value="solid" checked onchange="forcePhase('solid')">
                         <span class="radio-custom"></span> <span>SOLID</span>
@@ -305,6 +304,14 @@
                         <span class="radio-custom"></span> <span>GAS</span>
                     </label>
                 </div>
+                <div class="control-label">SUBSTANCE</div>
+                <select id="kin-substance-select" onchange="changeKinSubstance()">
+                    <option value="water">Water (H2O)</option>
+                    <option value="helium">Helium (He)</option>
+                    <option value="nitrogen">Nitrogen (N2)</option>
+                    <option value="iron">Iron (Fe)</option>
+                    <option value="tungsten">Tungsten (W)</option>
+                </select>
             </div>
 
             <div class="stage-container" id="kin-stage-bounds">
@@ -493,14 +500,13 @@
         else if (screenId === 'specific-screen') initSpecificHeatSim();
     }
 
-    // Vector Drawing Utilities
     function drawNeonLine(ctx, x1, y1, x2, y2, color, width=2, blur=10) {
         ctx.beginPath();
         ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
         ctx.strokeStyle = color; ctx.lineWidth = width;
         ctx.shadowBlur = blur; ctx.shadowColor = color;
         ctx.stroke();
-        ctx.shadowBlur = 0; // reset
+        ctx.shadowBlur = 0; 
     }
     
     function drawNeonRect(ctx, x, y, w, h, color, width=2, blur=10) {
@@ -530,21 +536,37 @@
     const kinCtx = kinCanvas.getContext('2d');
     let kinCW, kinCH;
     
+    const kinSubstances = {
+        'water': { name: 'Water (H2O)', melt: 273.15, boil: 373.15 },
+        'helium': { name: 'Helium (He)', melt: 1.0, boil: 4.22 },
+        'nitrogen': { name: 'Nitrogen (N2)', melt: 63.15, boil: 77.35 },
+        'iron': { name: 'Iron (Fe)', melt: 1811, boil: 3134 },
+        'tungsten': { name: 'Tungsten (W)', melt: 3695, boil: 5930 }
+    };
+
+    let kinCurrentSubKey = 'water';
     let kinTempK = 150; 
     let currentPhase = 'solid';
     let kinUnit = 'C';
     let particles = [];
 
-    const MELT_POINT = 273.15;
-    const BOIL_POINT = 373.15;
     let NUM_PARTICLES = 144; 
     const PARTICLE_SIZE = 12;
+
+    function getTempForPhase(phase, sub) {
+        if (phase === 'solid') return Math.max(0, sub.melt - (sub.boil - sub.melt) * 0.2);
+        if (phase === 'liquid') return sub.melt + (sub.boil - sub.melt) * 0.5;
+        if (phase === 'gas') return sub.boil + (sub.boil - sub.melt) * 0.2;
+        return 273.15;
+    }
 
     function calculateTargets(phase) {
         if (!kinCW) return;
         let spacing = (phase === 'liquid') ? PARTICLE_SIZE * 1.4 : PARTICLE_SIZE * 1.2; 
         
-        let cols = Math.floor((kinCW * 0.75) / spacing);
+        let targetW = kinCW * 0.75;
+        let targetH = kinCH * 0.5;
+        let cols = Math.floor(targetW / spacing);
         if (cols < 1) cols = 1;
         let rows = Math.ceil(particles.length / cols);
         
@@ -571,11 +593,12 @@
             this.vx = 0;
             this.vy = 0;
         }
-        update(phase, temp) {
+        update(phase, temp, sub) {
             let r = PARTICLE_SIZE/2;
 
+            // Falling to position logic
             if (this.state === 'falling') {
-                this.vy += 0.5; // Gravity
+                this.vy += 0.5; 
                 this.x += this.vx;
                 this.y += this.vy;
                 
@@ -584,63 +607,90 @@
                 
                 if (phase === 'gas') {
                     if (this.y >= kinCH - r) {
-                        this.y = kinCH - r;
-                        this.vy *= -1; 
-                        this.state = 'settled';
+                        this.y = kinCH - r; this.vy *= -1; this.state = 'settled';
                     }
                 } else {
                     if (this.y >= this.targetY) {
-                        this.y = this.targetY;
-                        this.vy = 0;
-                        this.vx = 0;
-                        this.state = 'settled';
+                        this.y = this.targetY; this.vy = 0; this.vx = 0; this.state = 'settled';
                     }
                 }
                 return;
             }
 
-            let vibBase = Math.max(0.1, temp); 
-            
-            if (phase === 'solid' || phase === 'liquid') {
-                let k = phase === 'solid' ? 0.05 : 0.02;
-                let damp = phase === 'solid' ? 0.82 : 0.88;
-                let vibrationAmp = vibBase * (phase === 'liquid' ? 0.015 : 0.005);
-                
-                let tx = this.targetX;
-                let ty = this.targetY;
-                if (phase === 'liquid') {
-                    tx += Math.sin(Date.now()*0.002 + this.id) * 15;
-                    ty += Math.cos(Date.now()*0.0015 + this.id) * 5;
-                    if (this.y < ty - 30) this.vy += 0.5; 
-                }
-                
-                this.vx += (tx - this.x) * k;
-                this.vy += (ty - this.y) * k;
-                this.vx *= damp; this.vy *= damp;
-                
-                this.x += this.vx + (Math.random() - 0.5) * vibrationAmp;
-                this.y += this.vy + (Math.random() - 0.5) * vibrationAmp;
-            } else if (phase === 'gas') {
-                let baseSpeed = 4;
-                let scaleFactor = (temp - BOIL_POINT) * 0.03;
-                let targetSpeed = baseSpeed + Math.max(0, scaleFactor);
-                if (targetSpeed > 25) targetSpeed = 25; 
-                
-                let currentSpeed = Math.hypot(this.vx, this.vy);
-                if (currentSpeed < 0.5) {
-                    let angle = Math.random() * Math.PI * 2;
-                    this.vx = Math.cos(angle) * targetSpeed;
-                    this.vy = Math.sin(angle) * targetSpeed;
-                    currentSpeed = targetSpeed;
-                }
-                let speedDiff = targetSpeed - currentSpeed;
-                this.vx += (this.vx / currentSpeed) * speedDiff * 0.1;
-                this.vy += (this.vy / currentSpeed) * speedDiff * 0.1;
+            // Vibration & Gas Mechanics
+            let isFrozen = false;
+            // 3rd Law of Thermodynamics / Absolute Zero Simulation
+            // We map the visible freezing strictly from 0°C (273.15K) down to Absolute Zero (0K).
+            // Stable randomization ensures the same particles stay frozen based on their ID hash.
+            // 2% remain permanently vibrating (zero-point energy).
+            let isZeroPointVibrator = ((this.id * 97) % 100) >= 98; 
 
-                this.x += this.vx; this.y += this.vy;
+            if (phase === 'solid' && temp <= 273.15) {
+                let f = temp / 273.15; 
+                let percentFrozen = (1 - f) * 98; 
+                let stableRand = (this.id * 97) % 100;
+                
+                if (stableRand < percentFrozen && !isZeroPointVibrator) {
+                    isFrozen = true;
+                }
+            }
+
+            if (isFrozen) {
+                this.vx = 0; this.vy = 0;
+                this.x = this.targetX; this.y = this.targetY;
+            } else {
+                let vibBase = Math.max(0.1, temp); 
+                
+                if (phase === 'solid' || phase === 'liquid') {
+                    let k = phase === 'solid' ? 0.05 : 0.02;
+                    let damp = phase === 'solid' ? 0.82 : 0.88;
+                    
+                    // Normalize vibration mathematically so Tungsten doesn't violently break at 3000K
+                    let normalizedVib = vibBase / sub.melt; 
+                    let vibrationAmp = normalizedVib * (phase === 'liquid' ? 1.5 : 0.5);
+                    if (vibrationAmp > 5) vibrationAmp = 5; 
+                    
+                    if (temp < 1 && isZeroPointVibrator) {
+                        vibrationAmp = 0.2; // Minute zero-point energy visibility
+                    }
+
+                    let tx = this.targetX;
+                    let ty = this.targetY;
+                    if (phase === 'liquid') {
+                        tx += Math.sin(Date.now()*0.002 + this.id) * 15;
+                        ty += Math.cos(Date.now()*0.0015 + this.id) * 5;
+                        if (this.y < ty - 30) this.vy += 0.5; 
+                    }
+                    
+                    this.vx += (tx - this.x) * k;
+                    this.vy += (ty - this.y) * k;
+                    this.vx *= damp; this.vy *= damp;
+                    
+                    this.x += this.vx + (Math.random() - 0.5) * vibrationAmp;
+                    this.y += this.vy + (Math.random() - 0.5) * vibrationAmp;
+                } else if (phase === 'gas') {
+                    let baseSpeed = 4;
+                    let overBoil = Math.max(0, temp - sub.boil);
+                    let scaleFactor = (overBoil / sub.boil) * 15; 
+                    let targetSpeed = baseSpeed + scaleFactor;
+                    if (targetSpeed > 25) targetSpeed = 25; 
+                    
+                    let currentSpeed = Math.hypot(this.vx, this.vy);
+                    if (currentSpeed < 0.5) {
+                        let angle = Math.random() * Math.PI * 2;
+                        this.vx = Math.cos(angle) * targetSpeed;
+                        this.vy = Math.sin(angle) * targetSpeed;
+                        currentSpeed = targetSpeed;
+                    }
+                    let speedDiff = targetSpeed - currentSpeed;
+                    this.vx += (this.vx / currentSpeed) * speedDiff * 0.1;
+                    this.vy += (this.vy / currentSpeed) * speedDiff * 0.1;
+
+                    this.x += this.vx; this.y += this.vy;
+                }
             }
             
-            // Strict boundaries for perfectly elastic collisions
+            // Strict boundaries for pure elastic collisions
             if (this.x <= r) { this.x = r; this.vx *= -1; }
             if (this.x >= kinCW - r) { this.x = kinCW - r; this.vx *= -1; }
             if (this.y <= r) { this.y = r; this.vy *= -1; }
@@ -663,16 +713,23 @@
         kinCanvas.width = container.clientWidth; kinCanvas.height = container.clientHeight;
         kinCW = kinCanvas.width; kinCH = kinCanvas.height;
 
-        let targetW = kinCW * 0.75;
-        let targetH = kinCH * 0.5;
         let spacing = PARTICLE_SIZE * 1.2;
-        let cols = Math.floor(targetW / spacing);
-        let rows = Math.floor(targetH / spacing);
+        let cols = Math.floor((kinCW * 0.75) / spacing);
+        let rows = Math.floor((kinCH * 0.5) / spacing);
         NUM_PARTICLES = cols * rows;
 
         particles = [];
         for (let i = 0; i < NUM_PARTICLES; i++) particles.push(new Particle(i));
         
+        // Initial setup
+        kinCurrentSubKey = 'water';
+        document.getElementById('kin-substance-select').value = kinCurrentSubKey;
+        
+        let sub = kinSubstances[kinCurrentSubKey];
+        kinTempK = getTempForPhase('solid', sub);
+        document.getElementById('kin-temp-slider').max = sub.boil * 1.5;
+        document.getElementById('kin-temp-slider').value = kinTempK;
+
         calculateTargets(currentPhase);
         
         document.getElementById('kin-temp-slider').addEventListener('input', (e) => {
@@ -681,6 +738,18 @@
         });
 
         triggerShower(); updateKineticUI(); kinLoop();
+    }
+
+    function changeKinSubstance() {
+        kinCurrentSubKey = document.getElementById('kin-substance-select').value;
+        let sub = kinSubstances[kinCurrentSubKey];
+        
+        // Maintain the phase visually, adjust math to fit
+        document.getElementById('kin-temp-slider').max = sub.boil * 1.5;
+        kinTempK = getTempForPhase(currentPhase, sub);
+        document.getElementById('kin-temp-slider').value = kinTempK;
+        
+        updateKineticUI();
     }
 
     function triggerShower() {
@@ -694,9 +763,10 @@
     }
 
     function checkPhaseChange(triggerSource = 'temp') {
+        let sub = kinSubstances[kinCurrentSubKey];
         let newPhase = 'solid';
-        if (kinTempK >= BOIL_POINT) newPhase = 'gas';
-        else if (kinTempK >= MELT_POINT) newPhase = 'liquid';
+        if (kinTempK >= sub.boil) newPhase = 'gas';
+        else if (kinTempK >= sub.melt) newPhase = 'liquid';
 
         if (newPhase !== currentPhase) {
             currentPhase = newPhase;
@@ -705,7 +775,7 @@
             if (triggerSource === 'radio') {
                 triggerShower();
             } else if (currentPhase === 'gas') {
-                // Explode directly
+                // Explode in-place
                 particles.forEach(p => {
                     let angle = Math.random() * Math.PI * 2; let speed = 10;
                     p.vx = Math.cos(angle) * speed; p.vy = Math.sin(angle) * speed;
@@ -716,24 +786,27 @@
     }
 
     function forcePhase(phase) {
-        if (phase === 'solid') kinTempK = 150;
-        else if (phase === 'liquid') kinTempK = 300;
-        else if (phase === 'gas') kinTempK = 450;
+        let sub = kinSubstances[kinCurrentSubKey];
+        kinTempK = getTempForPhase(phase, sub);
         document.getElementById('kin-temp-slider').value = kinTempK;
         checkPhaseChange('radio'); updateKineticUI();
     }
 
     function modifyEnergy(direction) {
+        let sub = kinSubstances[kinCurrentSubKey];
+        let maxT = sub.boil * 1.5;
+        let delta = maxT * 0.05; 
+        if (delta < 20) delta = 20;
+
         if (direction > 0) {
-            kinTempK += 20;
-            if (kinTempK > 1000) kinTempK = 1000;
+            kinTempK += delta;
+            if (kinTempK > maxT) kinTempK = maxT;
         } else {
-            if (kinTempK > 200) kinTempK -= 25;
-            else if (kinTempK > 50) kinTempK -= 10;
+            if (kinTempK > delta) kinTempK -= delta;
             else if (kinTempK > 10) kinTempK -= 2;
             else if (kinTempK > 1) kinTempK -= 0.5;
             else kinTempK *= 0.8; 
-            if (kinTempK < 0) kinTempK = 0; // stop at 0K
+            if (kinTempK < 0) kinTempK = 0; 
         }
         document.getElementById('kin-temp-slider').value = kinTempK;
         checkPhaseChange('temp'); updateKineticUI();
@@ -760,9 +833,10 @@
 
     function kinLoop() {
         kinCtx.clearRect(0, 0, kinCW, kinCH);
-        drawNeonRect(kinCtx, 2, 2, kinCW-4, kinCH-4, '#00ffff', 2, 10); // Stage bounds
+        drawNeonRect(kinCtx, 2, 2, kinCW-4, kinCH-4, '#00ffff', 2, 10); 
 
-        particles.forEach(p => { p.update(currentPhase, kinTempK); p.draw(kinCtx); });
+        let sub = kinSubstances[kinCurrentSubKey];
+        particles.forEach(p => { p.update(currentPhase, kinTempK, sub); p.draw(kinCtx); });
         animIdKin = requestAnimationFrame(kinLoop);
     }
 
@@ -872,13 +946,11 @@
     }
 
     function drawVectorLamp(ctx, x, y, temp) {
-        // Base
         drawNeonLine(ctx, x-20, y, x+20, y, '#44aa44', 2, 5);
         drawNeonLine(ctx, x-10, y, x-10, y-15, '#44aa44', 2, 5);
         drawNeonLine(ctx, x+10, y, x+10, y-15, '#44aa44', 2, 5);
         drawNeonLine(ctx, x-10, y-15, x+10, y-15, '#44aa44', 2, 5);
         
-        // Flame (Vector Triangle)
         if (temp > BASE_TEMP_K) {
             let intensity = Math.min(1, (temp - BASE_TEMP_K) / 1000);
             let h = 20 + (intensity * 30);
@@ -893,7 +965,6 @@
             ctx.shadowBlur = 15; ctx.shadowColor = '#ff3333';
             ctx.stroke();
 
-            // Inner core
             ctx.beginPath();
             ctx.moveTo(x - 3 - flicker, y - 15);
             ctx.lineTo(x, y - 15 - h*0.6);
@@ -911,7 +982,7 @@
         const centerY = expCH / 2 - 40;
         const beamThickness = 40;
         const lampX = expCW / 2;
-        const lampY = centerY + XRAY_RADIUS + beamThickness + 40; // safely below xray
+        const lampY = centerY + XRAY_RADIUS + beamThickness + 40;
 
         let isMelted = expTempK >= expMat.melt;
         let calcTemp = isMelted ? expMat.melt : expTempK;
@@ -923,7 +994,6 @@
         let startX = (expCW - visualWidth) / 2;
         let endX = startX + visualWidth;
 
-        // Beam
         if (isMelted) {
             expCtx.beginPath();
             expCtx.moveTo(startX, centerY - beamThickness/2);
@@ -941,23 +1011,21 @@
             expCtx.textAlign = 'center'; expCtx.fillText(">> SYSTEM MELTDOWN <<", lampX, centerY + 120);
         } else {
             drawNeonRect(expCtx, startX, centerY - beamThickness/2, visualWidth, beamThickness, expMat.color, 2, 15);
-            // interior lines
             expCtx.beginPath(); expCtx.moveTo(startX, centerY); expCtx.lineTo(endX, centerY);
             expCtx.strokeStyle = 'rgba(255,255,255,0.2)'; expCtx.stroke();
         }
 
-        // Supports
         drawNeonLine(expCtx, startX-10, centerY+beamThickness/2+20, startX+10, centerY+beamThickness/2+20, '#00ffff');
         drawNeonLine(expCtx, startX, centerY+beamThickness/2+20, startX, centerY+beamThickness/2, '#00ffff');
         expCtx.beginPath(); expCtx.arc(endX, centerY+beamThickness/2+10, 10, 0, Math.PI*2); expCtx.strokeStyle='#00ffff'; expCtx.stroke();
 
         drawVectorLamp(expCtx, lampX, lampY, expTempK);
 
-        // X-Ray
         if (xrayEnabled) {
             expCtx.save();
             expCtx.beginPath(); expCtx.arc(lampX, centerY, XRAY_RADIUS, 0, Math.PI * 2);
-            expCtx.strokeStyle = varMagenta = '#ff00ff'; expCtx.lineWidth = 3;
+            let varMagenta = '#ff00ff';
+            expCtx.strokeStyle = varMagenta; expCtx.lineWidth = 3;
             expCtx.shadowBlur = 15; expCtx.shadowColor = varMagenta;
             expCtx.stroke(); expCtx.fillStyle = '#050005'; expCtx.fill();
             expCtx.clip(); 
@@ -987,13 +1055,13 @@
 
     const SPECIFIC_HEATS = {
         water: 4184, 
-        '897': 897, // Aluminum
-        '450': 450, // Iron
-        '129': 129, // Gold
-        '385': 385  // Copper
+        '897': 897, 
+        '450': 450, 
+        '129': 129, 
+        '385': 385  
     };
 
-    let shState = 'IDLE'; // IDLE, HEATING, DROPPING, TRANSFERRING
+    let shState = 'IDLE'; 
     let massWater = 1.0, tempWater = 20.0;
     let massMetal = 1.0, tempMetal = 20.0, typeMetal = '897';
     let tempEquilibrium = 20.0;
@@ -1007,10 +1075,10 @@
     let shMolecules = [];
 
     // Geometry
-    let tX, tY, tW, tH; // Tank
-    let fX, fY, fW, fH; // Furnace
-    let bX, bY, bS = 60; // Block
-    let cY = 50; // Crane track height
+    let tX, tY, tW, tH; 
+    let fX, fY, fW, fH; 
+    let bX, bY, bS = 60; 
+    let cY = 50; 
 
     function initSpecificHeatSim() {
         const container = document.getElementById('sh-stage-bounds');
@@ -1031,7 +1099,6 @@
         let cWater = SPECIFIC_HEATS.water;
         let cMetal = SPECIFIC_HEATS[typeMetal];
         
-        // Equilibrium equation: (mw*cw*Tw + mm*cm*Tm) / (mw*cw + mm*cm)
         tempEquilibrium = (massWater * cWater * tempWaterStart + massMetal * cMetal * tempMetalStart) / 
                           (massWater * cWater + massMetal * cMetal);
     }
@@ -1060,7 +1127,7 @@
     function shStopHeating() {
         isHeating = false;
         if (shState === 'IDLE') {
-            tempMetalStart = tempMetal; // lock in the temp for eq calc
+            tempMetalStart = tempMetal; 
             shUpdateEquilibrium();
             document.getElementById('sh-status-msg').innerText = "READY FOR DROP";
         }
@@ -1074,14 +1141,12 @@
 
     function initShMolecules() {
         shMolecules = [];
-        // Water molecules (left side of xray)
         for(let i=0; i<30; i++) {
             shMolecules.push({
                 type: 'water', x: -60 + Math.random()*50, y: (Math.random()-0.5)*100, 
                 tx: -60 + Math.random()*50, ty: (Math.random()-0.5)*100
             });
         }
-        // Metal atoms (right side of xray)
         let spacing = 15;
         for(let x=10; x<=70; x+=spacing) {
             for(let y=-50; y<=50; y+=spacing) {
@@ -1092,7 +1157,7 @@
 
     function drawThermometer(ctx, x, y, temp, maxTemp=100, isWater=true) {
         let th = 150, tw = 12;
-        drawNeonRect(ctx, x, y-th, tw, th, '#fff', 1, 5); // glass tube
+        drawNeonRect(ctx, x, y-th, tw, th, '#fff', 1, 5); 
         let fillPct = Math.min(1, Math.max(0, temp/maxTemp));
         let fh = fillPct * (th-4);
         let color = isWater ? '#00ffff' : '#ff3333';
@@ -1108,7 +1173,6 @@
     function shLoop() {
         shCtx.clearRect(0, 0, shCW, shCH);
 
-        // Updates
         if (isHeating && shState === 'IDLE') {
             tempMetal += 2;
             if (tempMetal > 1000) tempMetal = 1000;
@@ -1117,7 +1181,6 @@
         if (shState === 'DROPPING') {
             dropProgress += 0.015;
             let p = dropProgress;
-            // Arc path logic (up to track, over, down into tank)
             if (p < 0.3) {
                 bY = (fY + fH - bS - 10) - (p/0.3)*(fY + fH - bS - 10 - cY - bS);
             } else if (p < 0.7) {
@@ -1143,65 +1206,51 @@
                 shState = 'DONE';
                 document.getElementById('sh-status-msg').innerText = "THERMAL EQUILIBRIUM REACHED";
             }
-            // Lerp temperatures
-            // We use easeOut curve for realistic cooling
             let ease = 1 - Math.pow(1 - transferProgress, 3); 
             tempWater = tempWaterStart + (tempEquilibrium - tempWaterStart) * ease;
             tempMetal = tempMetalStart + (tempEquilibrium - tempMetalStart) * ease;
         }
 
-        // Draw Tank & Water
         drawNeonRect(shCtx, tX, tY, tW, tH, '#00ffff', 2, 10);
-        let waterLevel = tH * (0.4 + (massWater/10)); // visually change level based on mass
+        let waterLevel = tH * (0.4 + (massWater/10)); 
         shCtx.fillStyle = 'rgba(0, 255, 255, 0.15)';
         shCtx.fillRect(tX+2, tY+tH-waterLevel, tW-4, waterLevel);
-        // Water waves
         shCtx.beginPath();
         for(let i=0; i<tW-4; i++) {
             shCtx.lineTo(tX+2+i, tY+tH-waterLevel + Math.sin(i*0.05 + Date.now()*0.005)*5);
         }
         shCtx.strokeStyle = '#00ffff'; shCtx.stroke();
 
-        // Draw Furnace
         drawNeonRect(shCtx, fX, fY, fW, fH, '#ff9900', 2, 10);
         if (isHeating) {
             shCtx.fillStyle = `rgba(255, 100, 0, ${0.2 + Math.random()*0.2})`;
             shCtx.fillRect(fX+2, fY+2, fW-4, fH-4);
         }
 
-        // Draw Crane Track
         drawNeonLine(shCtx, tX+tW/2, cY, fX+fW/2, cY, 'rgba(255,0,255,0.5)', 2, 0);
         if (shState === 'DROPPING') {
-            // Crane arm
             drawNeonLine(shCtx, bX+bS/2, cY, bX+bS/2, bY, '#ff00ff', 2, 10);
         }
 
-        // Draw Metal Block
-        // Color shifts from grey to bright red based on temp
         let r = Math.min(255, 100 + (tempMetal/1000)*155);
         let g = Math.max(0, 100 - (tempMetal/1000)*100);
         let b = Math.max(0, 100 - (tempMetal/1000)*100);
         let blockColor = `rgb(${r},${g},${b})`;
-        let blockGlow = `rgb(${r},0,0)`;
         
-        // Make the block size slightly depend on mass visually
         let curBs = bS * (0.8 + massMetal*0.1);
         let bxOffset = bX + (bS - curBs)/2;
-        let byOffset = bY + (bS - curBs); // keep bottom aligned
+        let byOffset = bY + (bS - curBs); 
         drawNeonRect(shCtx, bxOffset, byOffset, curBs, curBs, blockColor, 3, (tempMetal>100)?15:5);
         shCtx.fillStyle = `rgba(${r},${g},${b}, 0.5)`;
         shCtx.fillRect(bxOffset, byOffset, curBs, curBs);
 
-        // Draw Thermometers
         drawThermometer(shCtx, tX - 30, tY + tH - 10, tempWater, 100, true);
         drawThermometer(shCtx, fX + fW + 20, fY + fH - 10, tempMetal, 1000, false);
 
-        // Specific Heat X-RAY Visualizer
         if (shXRay && (shState === 'TRANSFERRING' || shState === 'DONE')) {
             shCtx.save();
             let xrR = 100; let xrX = tX+tW/2; let xrY = tY+tH-waterLevel/2;
             
-            // Xray Lens
             shCtx.beginPath(); shCtx.arc(xrX, xrY, xrR, 0, Math.PI*2);
             shCtx.strokeStyle = '#ff00ff'; shCtx.lineWidth = 4;
             shCtx.shadowBlur = 15; shCtx.shadowColor = '#ff00ff';
@@ -1209,24 +1258,21 @@
             shCtx.clip();
             shCtx.translate(xrX, xrY);
 
-            // Interface Line
             drawNeonLine(shCtx, 0, -xrR, 0, xrR, 'rgba(255,255,255,0.2)');
 
             shMolecules.forEach(m => {
-                let vibTarget, baseK, baseDamp, isWater = m.type === 'water';
+                let vibTarget, baseK, isWater = m.type === 'water';
                 if (isWater) {
                     vibTarget = tempWater * 0.1;
-                    baseK = 0.05; baseDamp = 0.85;
+                    baseK = 0.05; 
                 } else {
                     vibTarget = (tempMetal/1000) * 10;
-                    baseK = 0.2; baseDamp = 0.7; // rigid
+                    baseK = 0.2; 
                 }
 
-                // Random chaotic movement constrained to targets
                 m.x += (m.tx - m.x)*baseK + (Math.random()-0.5)*vibTarget;
                 m.y += (m.ty - m.y)*baseK + (Math.random()-0.5)*vibTarget;
                 
-                // Keep strictly on their side of the interface
                 if (isWater && m.x > -5) m.x = -5;
                 if (!isWater && m.x < 5) m.x = 5;
 
