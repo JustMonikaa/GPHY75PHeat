@@ -534,21 +534,19 @@
     let currentPhase = 'solid';
     let kinUnit = 'C';
     let particles = [];
-    let isSpawning = false;
 
     const MELT_POINT = 273.15;
     const BOIL_POINT = 373.15;
-    const NUM_PARTICLES = 144; 
+    let NUM_PARTICLES = 144; 
     const PARTICLE_SIZE = 12;
 
     function calculateTargets(phase) {
         if (!kinCW) return;
-        let layoutW = kinCW * 0.75; // 3/4 width
-        let spacing = (phase === 'liquid') ? PARTICLE_SIZE * 1.6 : PARTICLE_SIZE * 1.2; 
+        let spacing = (phase === 'liquid') ? PARTICLE_SIZE * 1.4 : PARTICLE_SIZE * 1.2; 
         
-        let cols = Math.floor(layoutW / spacing);
+        let cols = Math.floor((kinCW * 0.75) / spacing);
         if (cols < 1) cols = 1;
-        let rows = Math.ceil(NUM_PARTICLES / cols);
+        let rows = Math.ceil(particles.length / cols);
         
         let actualW = cols * spacing;
         let startX = (kinCW - actualW) / 2;
@@ -565,51 +563,65 @@
     class Particle {
         constructor(id) {
             this.id = id;
-            this.resetPos();
+            this.state = 'settled';
             this.targetX = 0;
             this.targetY = 0;
-        }
-        resetPos() {
-            this.x = Math.random() * kinCW;
-            this.y = -Math.random() * 500 - 50; 
-            this.vx = (Math.random() - 0.5) * 5;
-            this.vy = Math.random() * 2 + 1;
+            this.x = 0;
+            this.y = 0;
+            this.vx = 0;
+            this.vy = 0;
         }
         update(phase, temp) {
-            let vibBase = Math.max(0.1, temp); // Minutely vibrate even at low temp, 0 at 0K
-            let vibrationAmp = vibBase * 0.005; 
             let r = PARTICLE_SIZE/2;
 
-            if (isSpawning) {
+            if (this.state === 'falling') {
                 this.vy += 0.5; // Gravity
-                this.y += this.vy; this.x += this.vx;
+                this.x += this.vx;
+                this.y += this.vy;
+                
                 if (this.x <= r) { this.x = r; this.vx *= -1; }
                 if (this.x >= kinCW - r) { this.x = kinCW - r; this.vx *= -1; }
-                if (this.y >= kinCH - r) { this.y = kinCH - r; this.vy *= -0.5; }
-                if (this.y > this.targetY - 20) { this.vx *= 0.8; this.vy *= 0.8; }
+                
+                if (phase === 'gas') {
+                    if (this.y >= kinCH - r) {
+                        this.y = kinCH - r;
+                        this.vy *= -1; 
+                        this.state = 'settled';
+                    }
+                } else {
+                    if (this.y >= this.targetY) {
+                        this.y = this.targetY;
+                        this.vy = 0;
+                        this.vx = 0;
+                        this.state = 'settled';
+                    }
+                }
                 return;
             }
 
+            let vibBase = Math.max(0.1, temp); 
+            
             if (phase === 'solid' || phase === 'liquid') {
                 let k = phase === 'solid' ? 0.05 : 0.02;
                 let damp = phase === 'solid' ? 0.82 : 0.88;
+                let vibrationAmp = vibBase * (phase === 'liquid' ? 0.015 : 0.005);
                 
                 let tx = this.targetX;
                 let ty = this.targetY;
                 if (phase === 'liquid') {
                     tx += Math.sin(Date.now()*0.002 + this.id) * 15;
                     ty += Math.cos(Date.now()*0.0015 + this.id) * 5;
-                    if (this.y < ty - 30) this.vy += 0.5; // Gravity
+                    if (this.y < ty - 30) this.vy += 0.5; 
                 }
                 
                 this.vx += (tx - this.x) * k;
                 this.vy += (ty - this.y) * k;
                 this.vx *= damp; this.vy *= damp;
                 
-                this.x += this.vx + (Math.random() - 0.5) * vibrationAmp * (phase==='liquid'?2.5:1);
-                this.y += this.vy + (Math.random() - 0.5) * vibrationAmp * (phase==='liquid'?2.0:1);
+                this.x += this.vx + (Math.random() - 0.5) * vibrationAmp;
+                this.y += this.vy + (Math.random() - 0.5) * vibrationAmp;
             } else if (phase === 'gas') {
-                let baseSpeed = 3;
+                let baseSpeed = 4;
                 let scaleFactor = (temp - BOIL_POINT) * 0.03;
                 let targetSpeed = baseSpeed + Math.max(0, scaleFactor);
                 if (targetSpeed > 25) targetSpeed = 25; 
@@ -628,11 +640,14 @@
                 this.x += this.vx; this.y += this.vy;
             }
             
-            // Strict boundaries
+            // Strict boundaries for perfectly elastic collisions
             if (this.x <= r) { this.x = r; this.vx *= -1; }
             if (this.x >= kinCW - r) { this.x = kinCW - r; this.vx *= -1; }
-            if (this.y <= r && phase === 'gas') { this.y = r; this.vy *= -1; }
-            if (this.y >= kinCH - r) { this.y = kinCH - r; this.vy *= (phase === 'gas' ? -1 : -0.5); }
+            if (this.y <= r) { this.y = r; this.vy *= -1; }
+            if (this.y >= kinCH - r) { 
+                this.y = kinCH - r; 
+                this.vy *= (phase === 'gas' ? -1 : -0.5); 
+            }
         }
         draw(ctx) {
             let colorCore = '#fff';
@@ -648,6 +663,13 @@
         kinCanvas.width = container.clientWidth; kinCanvas.height = container.clientHeight;
         kinCW = kinCanvas.width; kinCH = kinCanvas.height;
 
+        let targetW = kinCW * 0.75;
+        let targetH = kinCH * 0.5;
+        let spacing = PARTICLE_SIZE * 1.2;
+        let cols = Math.floor(targetW / spacing);
+        let rows = Math.floor(targetH / spacing);
+        NUM_PARTICLES = cols * rows;
+
         particles = [];
         for (let i = 0; i < NUM_PARTICLES; i++) particles.push(new Particle(i));
         
@@ -662,9 +684,13 @@
     }
 
     function triggerShower() {
-        isSpawning = true;
-        particles.forEach(p => p.resetPos());
-        setTimeout(() => { isSpawning = false; }, 2000);
+        particles.forEach((p, i) => {
+            p.x = Math.random() * kinCW;
+            p.y = -Math.random() * (kinCH * 1.5) - 50; 
+            p.vx = (Math.random() - 0.5) * 5;
+            p.vy = Math.random() * 2 + 1;
+            p.state = 'falling';
+        });
     }
 
     function checkPhaseChange(triggerSource = 'temp') {
@@ -683,6 +709,7 @@
                 particles.forEach(p => {
                     let angle = Math.random() * Math.PI * 2; let speed = 10;
                     p.vx = Math.cos(angle) * speed; p.vy = Math.sin(angle) * speed;
+                    p.state = 'settled';
                 });
             }
         }
